@@ -1,103 +1,273 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { useAccount, useWriteContract } from "wagmi";
+import { ethers } from "ethers";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
+import BottomNav from "./components/BottomNav";
+import "./styles.css";
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../lib/constants";
+import { useEthersProvider } from "../lib/ethers";
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [bets, setBets] = useState([]);
+  const [filteredBets, setFilteredBets] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [amount, setAmount] = useState("");
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const router = useRouter();
+  const { address: account, isConnected } = useAccount();
+  const { writeContract } = useWriteContract();
+  const provider = useEthersProvider();
+  const lastFetchTime = useRef(0);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const fetchBets = useCallback(async () => {
+    if (!isConnected || !provider) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+      const latestBlock = await provider.getBlockNumber();
+      const fromBlock = Math.max(latestBlock - 10000, 0);
+      const createdEvents = await contract.queryFilter("BetCreated", fromBlock, "latest");
+      const betList = await Promise.all(
+        createdEvents.map(async (event) => {
+          const betId = event.args.betId.toNumber();
+          const bet = await contract.bets(betId);
+          const userBetFor = account ? await contract.betsFor(betId, account) : ethers.BigNumber.from(0);
+          const userBetAgainst = account ? await contract.betsAgainst(betId, account) : ethers.BigNumber.from(0);
+          return formatBet(bet, betId, userBetFor, userBetAgainst);
+        })
+      );
+
+      setBets(betList);
+      applyFilter(betList, filter);
+      lastFetchTime.current = Date.now();
+    } catch (error) {
+      console.error("Error fetching bets:", error);
+      setError("Failed to load bets.");
+    }
+    setLoading(false);
+  }, [isConnected, provider, account, filter]);
+
+  const formatBet = (bet, betId, userBetFor, userBetAgainst) => {
+    const totalFor = ethers.utils.formatEther(bet.totalFor);
+    const totalAgainst = ethers.utils.formatEther(bet.totalAgainst);
+    const totalPool = ethers.utils.formatEther(bet.totalPool);
+    const forOdds =
+      totalFor >= 0 && totalAgainst >= 0
+        ? (parseFloat(totalAgainst) / parseFloat(totalFor)).toFixed(2)
+        : "N/A";
+    const againstOdds =
+      totalFor >= 0 && totalAgainst >= 0
+        ? (parseFloat(totalFor) / parseFloat(totalAgainst)).toFixed(2)
+        : "N/A";
+    const forPayout =
+      totalFor >= 0 ? (parseFloat(totalPool) / parseFloat(totalFor)).toFixed(2) : "N/A";
+    const againstPayout =
+      totalAgainst >= 0 ? (parseFloat(totalPool) / parseFloat(totalAgainst)).toFixed(2) : "N/A";
+
+    return {
+      id: betId,
+      description: bet.description,
+      creator: bet.creator,
+      totalPool,
+      isActive: bet.isActive,
+      forWins: bet.forWins,
+      forOdds: forOdds === "NaN" ? "1" : forOdds,
+      againstOdds: againstOdds === "NaN" ? "1" : againstOdds,
+      forPayout: forPayout === "NaN" ? "1" : forPayout,
+      againstPayout: againstPayout === "NaN" ? "1" : againstPayout,
+      userBetFor: ethers.utils.formatEther(userBetFor),
+      userBetAgainst: ethers.utils.formatEther(userBetAgainst),
+    };
+  };
+
+  const applyFilter = (betList, filterValue) => {
+    const filtered = betList.filter((bet) => {
+      if (filterValue === "open") return bet.isActive;
+      if (filterValue === "closed") return !bet.isActive;
+      return true;
+    });
+    setFilteredBets(filtered);
+  };
+
+  const placeBet = async (betId, forOutcome) => {
+    if (!isConnected || !amount || parseFloat(amount) <= 0) {
+      setError(!isConnected ? "Please connect your wallet." : "Please enter a valid bet amount.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await writeContract({
+        address: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
+        functionName: "placeBet",
+        args: [betId, forOutcome],
+        value: ethers.utils.parseEther(amount),
+      });
+      alert("Bet placed successfully!");
+      setAmount("");
+      await fetchBets();
+    } catch (error) {
+      console.error("Error placing bet:", error);
+      setError(error.reason || "Error placing bet.");
+    }
+    setLoading(false);
+  };
+
+  const handleScroll = useCallback(() => {
+    if (window.scrollY === 0 && !loading) {
+      fetchBets();
+    }
+  }, [fetchBets, loading]);
+
+  useEffect(() => {
+    if (isConnected && provider) {
+      fetchBets();
+      window.addEventListener("scroll", handleScroll);
+
+      const syncInterval = setInterval(() => {
+        if (Date.now() - lastFetchTime.current >= 10000) {
+          fetchBets();
+        }
+      }, 10000);
+
+      return () => {
+        clearInterval(syncInterval);
+        window.removeEventListener("scroll", handleScroll);
+      };
+    }
+  }, [isConnected, provider, fetchBets, handleScroll]);
+
+  const memoizedBets = useMemo(() => {
+    return filteredBets.map((bet) => (
+      <div key={bet.id} className="bet-card">
+        <h2>{bet.description}</h2>
+        <div className="bet-details">
+          <div className="detail-item">
+            <span>Total Pool</span>
+            <span>{bet.totalPool} ETH</span>
+          </div>
+          <div className="odds-table">
+            <div className="odds-header">
+              <span>Yes</span>
+              <span>No</span>
+            </div>
+            <div className="odds-values">
+              <span>{bet.forOdds}</span>
+              <span>{bet.againstOdds}</span>
+            </div>
+          </div>
+          <div className="detail-item">
+            <span>Creator</span>
+            <span>{bet.creator.slice(0, 6)}...</span>
+          </div>
+          {!bet.isActive && (
+            <div className="detail-item">
+              <span>Outcome</span>
+              <span>{bet.forWins ? "Yes Wins" : "No Wins"}</span>
+            </div>
+          )}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+        <span className={`status-dot ${bet.isActive ? "active" : "closed"}`}></span>
+        {bet.isActive && (
+          <div className="bet-actions">
+            <input
+              type="number"
+              placeholder="Enter ETH amount"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              disabled={loading}
+              className="eth-input"
+            />
+            <div className="bet-buttons-wrapper">
+              <span className="payout-multiplier">{bet.forPayout}x</span>
+              <div className="bet-buttons">
+                <button
+                  className="action-btn for-btn"
+                  onClick={() => placeBet(bet.id, true)}
+                  disabled={loading}
+                >
+                  {loading ? <div className="loader-small"></div> : "Yes"}
+                </button>
+                <button
+                  className="action-btn against-btn"
+                  onClick={() => placeBet(bet.id, false)}
+                  disabled={loading}
+                >
+                  {loading ? <div className="loader-small"></div> : "No"}
+                </button>
+              </div>
+              <span className="payout-multiplier">{bet.againstPayout}x</span>
+            </div>
+          </div>
+        )}
+        {error && <p className="error">{error}</p>}
+      </div>
+    ));
+  }, [filteredBets, loading, amount, placeBet]);
+
+  return (
+    <div className="feed-container">
+      {loading && <div className="top-loader"></div>}
+      {!isConnected ? (
+        <div className="connect-screen">
+          <ConnectButton />
+        </div>
+      ) : (
+        <>
+          <div className="bet-feed">
+            {filteredBets.length === 0 ? (
+              <div className="bet-card no-bets">
+                <p>No bets available</p>
+                {error && <p className="error">{error}</p>}
+              </div>
+            ) : (
+              memoizedBets
+            )}
+          </div>
+          <BottomNav
+            activePage="home"
+            onFilterClick={() => setShowFilterModal(!showFilterModal)}
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          {showFilterModal && (
+            <div className="filter-modal">
+              <button
+                className="filter-option"
+                onClick={() => {
+                  setFilter("all");
+                  setShowFilterModal(false);
+                }}
+              >
+                All
+              </button>
+              <button
+                className="filter-option"
+                onClick={() => {
+                  setFilter("open");
+                  setShowFilterModal(false);
+                }}
+              >
+                Open
+              </button>
+              <button
+                className="filter-option"
+                onClick={() => {
+                  setFilter("closed");
+                  setShowFilterModal(false);
+                }}
+              >
+                Closed
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
