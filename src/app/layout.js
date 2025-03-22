@@ -25,7 +25,7 @@ const config = getDefaultConfig({
   chains: [baseSepolia],
   transports: {
     // [mainnet.id]: http(),
-    [baseSepolia.id]: http('https://base-sepolia.g.alchemy.com/v2/JaJCOlWhLoGaN7evugp8w6sVXg56WEJB'),
+    [baseSepolia.id]: http(process.env.NEXT_PUBLIC_RPC_URL),
   },
 });
 
