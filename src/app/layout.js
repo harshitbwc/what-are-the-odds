@@ -9,7 +9,15 @@ import { FaPlus } from "react-icons/fa";
 import "@rainbow-me/rainbowkit/styles.css";
 import "../app/globals.css";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60 * 1000, // 1 minute
+      cacheTime: 5 * 60 * 1000, // 5 minutes
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const config = getDefaultConfig({
   appName: "What Are The Odds",

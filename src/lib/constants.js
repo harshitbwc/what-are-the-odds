@@ -1,4 +1,5 @@
 // src/lib/constants.js
+export const FROM_BLOCK = 23424900;
 
 export const CONTRACT_ADDRESS = "0x820864f70d11a50911C9f09aB84cc1a1AA8a9C11"; // Replace with your deployed address
 

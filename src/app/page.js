@@ -7,8 +7,9 @@ import { ethers } from "ethers";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import BottomNav from "./components/BottomNav";
 import "./styles.css";
-import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../lib/constants";
+import { CONTRACT_ADDRESS, CONTRACT_ABI, FROM_BLOCK } from "../lib/constants";
 import { useEthersProvider } from "../lib/ethers";
+import { FaSpinner } from "react-icons/fa";
 
 export default function Home() {
   const [bets, setBets] = useState([]);
@@ -18,57 +19,84 @@ export default function Home() {
   const [filter, setFilter] = useState("all");
   const [amount, setAmount] = useState("");
   const [showFilterModal, setShowFilterModal] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const router = useRouter();
   const { address: account, isConnected } = useAccount();
   const { writeContract } = useWriteContract();
   const provider = useEthersProvider();
-  const lastFetchTime = useRef(0);
+  const betsCache = useRef(new Map());
 
-  const fetchBets = useCallback(async () => {
-    if (!isConnected || !provider) return;
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  const fetchBets = useCallback(async (forceRefresh = false) => {
+    if (!isConnected || !provider || !isHydrated) {
+      console.log("Fetch skipped: not connected, no provider, or not hydrated", { isConnected, provider: !!provider, isHydrated });
+      return;
+    }
+
+    if (!forceRefresh && betsCache.current.has("all")) {
+      const cachedBets = betsCache.current.get("all");
+      console.log("Using cached bets:", cachedBets);
+      setBets(cachedBets);
+      applyFilter(cachedBets, filter);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
       const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
       const latestBlock = await provider.getBlockNumber();
-      const fromBlock = Math.max(latestBlock - 10000, 0);
+      const fromBlock = FROM_BLOCK; // Look back 10,000 blocks
+      console.log("Fetching bets from block", fromBlock, "to", latestBlock);
+
       const createdEvents = await contract.queryFilter("BetCreated", fromBlock, "latest");
-      const betList = await Promise.all(
+      console.log("Found BetCreated events:", createdEvents.length, createdEvents);
+
+      if (createdEvents.length === 0) {
+        setBets([]);
+        setFilteredBets([]);
+        setLoading(false);
+        return;
+      }
+
+      const betList = (await Promise.all(
         createdEvents.map(async (event) => {
           const betId = event.args.betId.toNumber();
           const bet = await contract.bets(betId);
           const userBetFor = account ? await contract.betsFor(betId, account) : ethers.BigNumber.from(0);
           const userBetAgainst = account ? await contract.betsAgainst(betId, account) : ethers.BigNumber.from(0);
-          return formatBet(bet, betId, userBetFor, userBetAgainst);
+          const formattedBet = formatBet(bet, betId, userBetFor, userBetAgainst);
+          console.log(`Fetched bet ${betId}:`, formattedBet);
+          return formattedBet;
         })
-      );
+      )).reverse();
 
+      betsCache.current.set("all", betList);
       setBets(betList);
       applyFilter(betList, filter);
-      lastFetchTime.current = Date.now();
     } catch (error) {
       console.error("Error fetching bets:", error);
-      setError("Failed to load bets.");
+      setError(`Failed to load bets: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [isConnected, provider, account, filter]);
+  }, [isConnected, provider, account, filter, isHydrated]);
 
   const formatBet = (bet, betId, userBetFor, userBetAgainst) => {
     const totalFor = ethers.utils.formatEther(bet.totalFor);
     const totalAgainst = ethers.utils.formatEther(bet.totalAgainst);
     const totalPool = ethers.utils.formatEther(bet.totalPool);
-    const forOdds =
-      totalFor >= 0 && totalAgainst >= 0
-        ? (parseFloat(totalAgainst) / parseFloat(totalFor)).toFixed(2)
-        : "N/A";
-    const againstOdds =
-      totalFor >= 0 && totalAgainst >= 0
-        ? (parseFloat(totalFor) / parseFloat(totalAgainst)).toFixed(2)
-        : "N/A";
-    const forPayout =
-      totalFor >= 0 ? (parseFloat(totalPool) / parseFloat(totalFor)).toFixed(2) : "N/A";
-    const againstPayout =
-      totalAgainst >= 0 ? (parseFloat(totalPool) / parseFloat(totalAgainst)).toFixed(2) : "N/A";
+    const forOdds = totalFor >= 0 && totalAgainst >= 0
+      ? (parseFloat(totalAgainst) / parseFloat(totalFor)).toFixed(2)
+      : "N/A";
+    const againstOdds = totalFor >= 0 && totalAgainst >= 0
+      ? (parseFloat(totalFor) / parseFloat(totalAgainst)).toFixed(2)
+      : "N/A";
+    const forPayout = totalFor >= 0 ? (parseFloat(totalPool) / parseFloat(totalFor)).toFixed(2) : "N/A";
+    const againstPayout = totalAgainst >= 0 ? (parseFloat(totalPool) / parseFloat(totalAgainst)).toFixed(2) : "N/A";
 
     return {
       id: betId,
@@ -92,17 +120,19 @@ export default function Home() {
       if (filterValue === "closed") return !bet.isActive;
       return true;
     });
+    console.log(`Applied filter '${filterValue}':`, filtered);
     setFilteredBets(filtered);
   };
 
-  const placeBet = async (betId, forOutcome) => {
+  const placeBet = useCallback(async (betId, forOutcome) => {
     if (!isConnected || !amount || parseFloat(amount) <= 0) {
       setError(!isConnected ? "Please connect your wallet." : "Please enter a valid bet amount.");
       return;
     }
-    setLoading(true);
-    setError(null);
+
     try {
+      setLoading(true);
+      setError(null);
       await writeContract({
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
@@ -110,39 +140,78 @@ export default function Home() {
         args: [betId, forOutcome],
         value: ethers.utils.parseEther(amount),
       });
-      alert("Bet placed successfully!");
       setAmount("");
-      await fetchBets();
+      await fetchBets(true);
     } catch (error) {
       console.error("Error placing bet:", error);
       setError(error.reason || "Error placing bet.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
-
-  const handleScroll = useCallback(() => {
-    if (window.scrollY === 0 && !loading) {
-      fetchBets();
-    }
-  }, [fetchBets, loading]);
+  }, [isConnected, amount, writeContract, fetchBets]);
 
   useEffect(() => {
-    if (isConnected && provider) {
-      fetchBets();
-      window.addEventListener("scroll", handleScroll);
-
-      const syncInterval = setInterval(() => {
-        if (Date.now() - lastFetchTime.current >= 10000) {
-          fetchBets();
-        }
-      }, 10000);
-
-      return () => {
-        clearInterval(syncInterval);
-        window.removeEventListener("scroll", handleScroll);
-      };
+    if (!isHydrated || !isConnected || !provider) {
+      console.log("Effect skipped: not hydrated, not connected, or no provider", { isHydrated, isConnected, provider: !!provider });
+      return;
     }
-  }, [isConnected, provider, fetchBets, handleScroll]);
+
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+
+    const handleBetUpdate = () => {
+      console.log("Event triggered, refreshing bets");
+      fetchBets(true);
+    };
+
+    contract.on("BetPlaced", handleBetUpdate);
+    contract.on("BetClosed", handleBetUpdate);
+    contract.on("AwardClaimed", handleBetUpdate);
+
+    fetchBets();
+
+    return () => {
+      contract.removeAllListeners("BetPlaced");
+      contract.removeAllListeners("BetClosed");
+      contract.removeAllListeners("AwardClaimed");
+    };
+  }, [isHydrated, isConnected, provider, fetchBets]);
+
+  const memoizedBetActions = useCallback((bet) => {
+    return (
+      bet.isActive && (
+        <div className="bet-actions">
+          <input
+            type="number"
+            placeholder="Enter ETH amount"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            disabled={loading}
+            className="eth-input"
+          />
+          <div className="bet-buttons-wrapper">
+            <span className="payout-multiplier">{bet.forPayout}x</span>
+            <div className="bet-buttons">
+              <button
+                className="action-btn for-btn"
+                onClick={() => placeBet(bet.id, true)}
+                disabled={loading}
+              >
+                Yes
+              </button>
+              <button
+                className="action-btn against-btn"
+                onClick={() => placeBet(bet.id, false)}
+                disabled={loading}
+              >
+                No
+              </button>
+            </div>
+            <span className="payout-multiplier">{bet.againstPayout}x</span>
+          </div>
+        </div>
+      )
+    );
+  }, [amount, loading, placeBet]);
 
   const memoizedBets = useMemo(() => {
     return filteredBets.map((bet) => (
@@ -153,11 +222,12 @@ export default function Home() {
             <span>Total Pool</span>
             <span>{bet.totalPool} ETH</span>
           </div>
-          <div className="odds-table">
+          <div className="odds-table">            
             <div className="odds-header">
               <span>Yes</span>
               <span>No</span>
             </div>
+
             <div className="odds-values">
               <span>{bet.forOdds}</span>
               <span>{bet.againstOdds}</span>
@@ -175,42 +245,21 @@ export default function Home() {
           )}
         </div>
         <span className={`status-dot ${bet.isActive ? "active" : "closed"}`}></span>
-        {bet.isActive && (
-          <div className="bet-actions">
-            <input
-              type="number"
-              placeholder="Enter ETH amount"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              disabled={loading}
-              className="eth-input"
-            />
-            <div className="bet-buttons-wrapper">
-              <span className="payout-multiplier">{bet.forPayout}x</span>
-              <div className="bet-buttons">
-                <button
-                  className="action-btn for-btn"
-                  onClick={() => placeBet(bet.id, true)}
-                  disabled={loading}
-                >
-                  {loading ? <div className="loader-small"></div> : "Yes"}
-                </button>
-                <button
-                  className="action-btn against-btn"
-                  onClick={() => placeBet(bet.id, false)}
-                  disabled={loading}
-                >
-                  {loading ? <div className="loader-small"></div> : "No"}
-                </button>
-              </div>
-              <span className="payout-multiplier">{bet.againstPayout}x</span>
-            </div>
-          </div>
-        )}
+        {memoizedBetActions(bet)}
         {error && <p className="error">{error}</p>}
       </div>
     ));
-  }, [filteredBets, loading, amount, placeBet]);
+  }, [filteredBets, error, memoizedBetActions]);
+
+  if (!isHydrated) {
+    return (
+      <div className="feed-container">
+        <div className="connect-screen">
+          <ConnectButton />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="feed-container">
@@ -224,8 +273,10 @@ export default function Home() {
           <div className="bet-feed">
             {filteredBets.length === 0 ? (
               <div className="bet-card no-bets">
-                <p>No bets available</p>
+                <p><FaSpinner /></p>
                 {error && <p className="error">{error}</p>}
+                {/* Add a manual refresh button for debugging */}
+                <button onClick={() => fetchBets(true)}>Refresh Bets</button>
               </div>
             ) : (
               memoizedBets

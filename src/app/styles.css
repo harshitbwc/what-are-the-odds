@@ -102,6 +102,7 @@ body {
   background: rgba(255, 255, 255, 0.05);
   border-radius: 10px;
   margin-top: 0;
+  margin-bottom: auto;
 }
 
 .detail-item {
@@ -279,6 +280,14 @@ body {
 .action-btn:disabled {
   background: #666;
   cursor: not-allowed;
+}
+
+.create-btn {
+  background: #69c9d0;
+  padding: 10px;
+  font-size: smaller;
+  border-radius: 20px;
+  align-self: center;
 }
 
 .payout-multiplier {
@@ -600,3 +609,52 @@ input:checked + .slider:before {
   background: #555;
   transform: scale(1.05);
 }
+
+/* Reset previous info styles if they exist */
+.info-section {
+  margin: 15px 0;
+}
+
+.info-section h3 {
+  font-size: 1.2rem;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.info-section p {
+  font-size: 1rem;
+  color: #666;
+  line-height: 1.5;
+}
+
+.info-list {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.info-list li {
+  font-size: 1rem;
+  color: #666;
+  margin: 8px 0;
+  padding-left: 10px;
+  position: relative;
+}
+
+.info-list li:before {
+  content: "•";
+  color: #007bff;
+  position: absolute;
+  left: 0;
+}
+
+.info-section a {
+  color: #007bff;
+  text-decoration: none;
+}
+
+.info-section a:hover {
+  text-decoration: underline;
+}
+
+

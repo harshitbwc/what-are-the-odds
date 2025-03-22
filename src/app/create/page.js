@@ -33,7 +33,7 @@ export default function Create() {
         functionName: "createBet",
         args: [description],
       });
-      alert("Bet created successfully!");
+
       setDescription("");
       router.push("/dashboard");
     } catch (error) {

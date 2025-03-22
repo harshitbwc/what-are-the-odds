@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { useAccount, useWriteContract } from "wagmi";
+import { useAccount, useWriteContract, useContractEvent } from "wagmi";
 import { ethers } from "ethers";
 import BottomNav from "../components/BottomNav";
 import "../../app/styles.css";
-import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../lib/constants";
+import { CONTRACT_ADDRESS, CONTRACT_ABI, FROM_BLOCK } from "../../lib/constants";
 import { useEthersProvider } from "../../lib/ethers";
 
 export default function Dashboard() {
@@ -22,17 +22,23 @@ export default function Dashboard() {
   const { address: account, isConnected } = useAccount();
   const { writeContract } = useWriteContract();
   const provider = useEthersProvider();
-  const lastFetchTime = useRef(0);
+  const betsCache = useRef(new Map()); // Cache to prevent unnecessary updates
 
-  const fetchUserBets = useCallback(async (mode) => {
+  const fetchUserBets = useCallback(async (mode, forceRefresh = false) => {
     if (!isConnected || !provider || !account) return;
+    
+    if (!forceRefresh && betsCache.current.has(mode)) {
+      setUserBets(betsCache.current.get(mode));
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
       const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
       let betList = [];
       const latestBlock = await provider.getBlockNumber();
-      const fromBlock = Math.max(latestBlock - 10000, 0);
+      const fromBlock = FROM_BLOCK;
 
       if (mode === "created") {
         const createdEvents = await contract.queryFilter("BetCreated", fromBlock, "latest");
@@ -66,8 +72,8 @@ export default function Dashboard() {
         );
       }
 
+      betsCache.current.set(mode, betList);
       setUserBets(betList);
-      lastFetchTime.current = Date.now();
     } catch (error) {
       console.error(`Error fetching ${mode} bets:`, error);
       setError(`Failed to load ${mode === "created" ? "predictions" : "bets"}.`);
@@ -79,18 +85,14 @@ export default function Dashboard() {
     const totalFor = ethers.utils.formatEther(bet.totalFor);
     const totalAgainst = ethers.utils.formatEther(bet.totalAgainst);
     const totalPool = ethers.utils.formatEther(bet.totalPool);
-    const forOdds =
-      totalFor >= 0 && totalAgainst >= 0
-        ? (parseFloat(totalAgainst) / parseFloat(totalFor)).toFixed(2)
-        : "N/A";
-    const againstOdds =
-      totalFor >= 0 && totalAgainst >= 0
-        ? (parseFloat(totalFor) / parseFloat(totalAgainst)).toFixed(2)
-        : "N/A";
-    const forPayout =
-      totalFor >= 0 ? (parseFloat(totalPool) / parseFloat(totalFor)).toFixed(2) : "N/A";
-    const againstPayout =
-      totalAgainst >= 0 ? (parseFloat(totalPool) / parseFloat(totalAgainst)).toFixed(2) : "N/A";
+    const forOdds = totalFor >= 0 && totalAgainst >= 0
+      ? (parseFloat(totalAgainst) / parseFloat(totalFor)).toFixed(2)
+      : "N/A";
+    const againstOdds = totalFor >= 0 && totalAgainst >= 0
+      ? (parseFloat(totalFor) / parseFloat(totalAgainst)).toFixed(2)
+      : "N/A";
+    const forPayout = totalFor >= 0 ? (parseFloat(totalPool) / parseFloat(totalFor)).toFixed(2) : "N/A";
+    const againstPayout = totalAgainst >= 0 ? (parseFloat(totalPool) / parseFloat(totalAgainst)).toFixed(2) : "N/A";
 
     return {
       id: betId,
@@ -108,14 +110,15 @@ export default function Dashboard() {
     };
   };
 
-  const placeBet = async (betId, forOutcome) => {
+  const placeBet = useCallback(async (betId, forOutcome) => {
     if (!isConnected || !amount || parseFloat(amount) <= 0) {
       setError(!isConnected ? "Please connect your wallet." : "Please enter a valid bet amount.");
       return;
     }
-    setLoading(true);
-    setError(null);
+    
     try {
+      setLoading(true);
+      setError(null);
       await writeContract({
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
@@ -123,54 +126,54 @@ export default function Dashboard() {
         args: [betId, forOutcome],
         value: ethers.utils.parseEther(amount),
       });
-      alert("Bet placed successfully!");
       setAmount("");
-      await fetchUserBets(viewMode);
+      await fetchUserBets(viewMode, true);
     } catch (error) {
       console.error("Error placing bet:", error);
       setError(error.reason || "Error placing bet.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
+  }, [isConnected, amount, writeContract, viewMode, fetchUserBets]);
 
-  const closeBet = async (betId, forWins) => {
-    setLoading(true);
-    setError(null);
+  const closeBet = useCallback(async (betId, forWins) => {
     try {
+      setLoading(true);
+      setError(null);
       await writeContract({
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
         functionName: "closeBet",
         args: [betId, forWins],
       });
-      alert(`Bet closed with ${forWins ? "Yes" : "No"} as the winner!`);
       setClosingOutcome(null);
-      await fetchUserBets(viewMode);
+      await fetchUserBets(viewMode, true);
     } catch (error) {
       console.error("Error closing bet:", error);
       setError(error.reason || "Error closing bet.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
+  }, [writeContract, viewMode, fetchUserBets]);
 
-  const claimAward = async (betId) => {
-    setLoading(true);
-    setError(null);
+  const claimAward = useCallback(async (betId) => {
     try {
+      setLoading(true);
+      setError(null);
       await writeContract({
         address: CONTRACT_ADDRESS,
         abi: CONTRACT_ABI,
         functionName: "claimAward",
         args: [betId],
       });
-      alert("Award claimed successfully! (10% fee deducted to treasury)");
-      await fetchUserBets(viewMode);
+      await fetchUserBets(viewMode, true);
     } catch (error) {
       console.error("Error claiming award:", error);
       setError(error.reason || "Error claiming award.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
+  }, [writeContract, viewMode, fetchUserBets]);
 
   const isEligibleToClaim = useCallback((bet) => {
     if (bet.isActive) return false;
@@ -180,29 +183,30 @@ export default function Dashboard() {
     );
   }, []);
 
-  const handleScroll = useCallback(() => {
-    if (window.scrollY === 0 && !loading) {
-      fetchUserBets(viewMode);
-    }
-  }, [fetchUserBets, loading, viewMode]);
-
+  // Event listeners for real-time updates
   useEffect(() => {
-    if (isConnected && provider) {
-      fetchUserBets(viewMode);
-      window.addEventListener("scroll", handleScroll);
+    if (!isConnected || !provider) return;
 
-      const syncInterval = setInterval(() => {
-        if (Date.now() - lastFetchTime.current >= 10000) {
-          fetchUserBets(viewMode);
-        }
-      }, 10000);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+    
+    const handleBetUpdate = () => {
+      fetchUserBets(viewMode, true);
+    };
 
-      return () => {
-        clearInterval(syncInterval);
-        window.removeEventListener("scroll", handleScroll);
-      };
-    }
-  }, [isConnected, provider, account, viewMode, fetchUserBets, handleScroll]);
+    contract.on("BetPlaced", handleBetUpdate);
+    contract.on("BetClosed", handleBetUpdate);
+    contract.on("AwardClaimed", handleBetUpdate);
+
+    // Initial fetch
+    fetchUserBets(viewMode);
+
+    // Cleanup
+    return () => {
+      contract.removeAllListeners("BetPlaced");
+      contract.removeAllListeners("BetClosed");
+      contract.removeAllListeners("AwardClaimed");
+    };
+  }, [isConnected, provider, viewMode, fetchUserBets]);
 
   const memoizedBets = useMemo(() => {
     return userBets.map((bet) => (
@@ -219,6 +223,89 @@ export default function Dashboard() {
     ));
   }, [userBets]);
 
+  const memoizedBetActions = useMemo(() => {
+    if (!selectedBet) return null;
+    
+    return (
+      <>
+        {selectedBet.isActive && viewMode === "created" && (
+          <div className="bet-actions">
+            <input
+              type="number"
+              placeholder="Enter ETH amount"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              disabled={loading}
+              className="eth-input"
+            />
+            <div className="bet-buttons-wrapper">
+              <span className="payout-multiplier">{selectedBet.forPayout}x</span>
+              <div className="bet-buttons">
+                <button
+                  className="action-btn for-btn"
+                  onClick={() => placeBet(selectedBet.id, true)}
+                  disabled={loading}
+                >
+                  {loading ? <div className="loader-small"></div> : "Yes"}
+                </button>
+                <button
+                  className="action-btn against-btn"
+                  onClick={() => placeBet(selectedBet.id, false)}
+                  disabled={loading}
+                >
+                  {loading ? <div className="loader-small"></div> : "No"}
+                </button>
+              </div>
+              <span className="payout-multiplier">{selectedBet.againstPayout}x</span>
+            </div>
+            <div className="close-options">
+              <p>Close Bet:</p>
+              <div className="bet-buttons">
+                <button
+                  className="action-btn for-btn"
+                  onClick={() => setClosingOutcome(true)}
+                  disabled={loading || closingOutcome !== null}
+                >
+                  Yes Wins
+                </button>
+                <button
+                  className="action-btn against-btn"
+                  onClick={() => setClosingOutcome(false)}
+                  disabled={loading || closingOutcome !== null}
+                >
+                  No Wins
+                </button>
+              </div>
+              {closingOutcome !== null && (
+                <button
+                  className="action-btn close-btn"
+                  onClick={() => closeBet(selectedBet.id, closingOutcome)}
+                  disabled={loading}
+                >
+                  Confirm Close
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {!selectedBet.isActive && (
+          <div className="bet-actions">
+            <button
+              className="action-btn claim-btn"
+              onClick={() => claimAward(selectedBet.id)}
+              disabled={loading || !isEligibleToClaim(selectedBet)}
+            >
+              Claim Award
+            </button>
+            <p className="fee-note">
+              Note: 10% of winnings will be deducted as a fee to the treasury.
+            </p>
+          </div>
+        )}
+      </>
+    );
+  }, [selectedBet, loading, amount, closingOutcome, placeBet, closeBet, claimAward, isEligibleToClaim]);
+
   return (
     <div className="feed-container">
       {loading && <div className="top-loader"></div>}
@@ -228,7 +315,7 @@ export default function Dashboard() {
         </div>
       ) : (
         <div className="bet-card">
-          <h2>Your Dashboard</h2>
+          <h2>Dashboard</h2>
           <div className="dashboard-header">
             <div className="bet-details">
               <div className="detail-item">
@@ -300,80 +387,7 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <span className={`status-dot ${selectedBet.isActive ? "active" : "closed"}`}></span>
-                {selectedBet.isActive && viewMode === "created" && (
-                  <div className="bet-actions">
-                    <input
-                      type="number"
-                      placeholder="Enter ETH amount"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      disabled={loading}
-                      className="eth-input"
-                    />
-                    <div className="bet-buttons-wrapper">
-                      <span className="payout-multiplier">{selectedBet.forPayout}x</span>
-                      <div className="bet-buttons">
-                        <button
-                          className="action-btn for-btn"
-                          onClick={() => placeBet(selectedBet.id, true)}
-                          disabled={loading}
-                        >
-                          {loading ? <div className="loader-small"></div> : "Yes"}
-                        </button>
-                        <button
-                          className="action-btn against-btn"
-                          onClick={() => placeBet(selectedBet.id, false)}
-                          disabled={loading}
-                        >
-                          {loading ? <div className="loader-small"></div> : "No"}
-                        </button>
-                      </div>
-                      <span className="payout-multiplier">{selectedBet.againstPayout}x</span>
-                    </div>
-                    <div className="close-options">
-                      <p>Close Bet:</p>
-                      <div className="bet-buttons">
-                        <button
-                          className="action-btn for-btn"
-                          onClick={() => setClosingOutcome(true)}
-                          disabled={loading || closingOutcome !== null}
-                        >
-                          {loading ? <div className="loader-small"></div> : "Yes Wins"}
-                        </button>
-                        <button
-                          className="action-btn against-btn"
-                          onClick={() => setClosingOutcome(false)}
-                          disabled={loading || closingOutcome !== null}
-                        >
-                          {loading ? <div className="loader-small"></div> : "No Wins"}
-                        </button>
-                      </div>
-                      {closingOutcome !== null && (
-                        <button
-                          className="action-btn close-btn"
-                          onClick={() => closeBet(selectedBet.id, closingOutcome)}
-                          disabled={loading}
-                        >
-                          {loading ? <div className="loader-small"></div> : "Confirm Close"}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {!selectedBet.isActive && (
-                  <div className="bet-actions">
-                    <button
-                      className="action-btn claim-btn"
-                      onClick={() => claimAward(selectedBet.id)}
-                      disabled={loading || !isEligibleToClaim(selectedBet)}
-                    >
-                      {loading ? <div className="loader-small"></div> : "Claim Award"}
-                    </button>
-                    <p className="fee-note">
-                      Note: 10% of winnings will be deducted as a fee to the treasury.
-                    </p>
-                  </div>
-                )}
+                {memoizedBetActions}
                 {error && <p className="error">{error}</p>}
               </div>
             </div>
