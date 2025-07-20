@@ -49,10 +49,13 @@ export default function Home() {
     try {
       const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
       const latestBlock = await provider.getBlockNumber();
-      const fromBlock = FROM_BLOCK; // Look back 10,000 blocks
+      // Only fetch logs from the latest 500 blocks
+      const fromBlock = Math.max(latestBlock - 499, 0);
       console.log("Fetching bets from block", fromBlock, "to", latestBlock);
 
-      const createdEvents = await contract.queryFilter("BetCreated", fromBlock, "latest");
+      // Fetch BetCreated logs only from the latest 500 blocks
+      const createdEvents = await contract.queryFilter("BetCreated", fromBlock, latestBlock);
+
       console.log("Found BetCreated events:", createdEvents.length, createdEvents);
 
       if (createdEvents.length === 0) {
