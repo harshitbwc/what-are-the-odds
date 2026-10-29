@@ -3,6 +3,7 @@
 import BottomNav from "../components/BottomNav";
 import "../../app/styles.css";
 import { FaInstagram, FaTwitter } from "react-icons/fa";
+import InstallButton from "../components/InstallButton";
 
 export default function Info() {
   return (
@@ -32,6 +33,13 @@ export default function Info() {
               No refunds. <br />
               Creators set outcomes. <br />
               10% fee on winnings.
+            </span>
+          </div>
+
+          <div className="detail-item">
+            <span>Get the app</span>
+            <span>
+              <InstallButton />
             </span>
           </div>
 
