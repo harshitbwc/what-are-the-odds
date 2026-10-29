@@ -5,7 +5,7 @@ import "../../app/styles.css";
 export default function BottomNav({ activePage, onFilterClick }) {
   return (
     <div className="bottom-nav">
-      <Link href="/" prefetch>
+      <Link href="/app" prefetch>
         <button className={`nav-btn home-btn ${activePage === "home" ? "active" : ""}`}>
           <FaHome />
         </button>

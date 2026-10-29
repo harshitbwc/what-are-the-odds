@@ -1,0 +1,191 @@
+/* Landing page. Scoped under .lp so it never touches the app screens. */
+.lp {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  background: #0a001a;
+  background-image:
+    radial-gradient(circle at 15% 8%, rgba(238, 29, 82, 0.2), transparent 40%),
+    radial-gradient(circle at 90% 30%, rgba(105, 201, 208, 0.16), transparent 40%);
+  color: #fff;
+  scroll-behavior: smooth;
+}
+
+.lp-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  background: rgba(10, 0, 26, 0.8);
+  backdrop-filter: blur(10px);
+}
+
+.lp-logo {
+  font-weight: 800;
+  font-size: 1.1rem;
+  color: #69c9d0;
+}
+
+.lp-btn {
+  display: inline-block;
+  background: #69c9d0;
+  color: #06121a;
+  font-weight: 800;
+  padding: 14px 28px;
+  border-radius: 12px;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.lp-btn-sm {
+  padding: 9px 18px;
+  font-size: 0.9rem;
+}
+
+.lp-hero {
+  width: 100%;
+  line-height: 0;
+}
+
+.lp-hero-media {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.lp-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.lp-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-top: 30px;
+}
+
+.lp-center {
+  justify-content: center;
+}
+
+.lp-section {
+  max-width: 1050px;
+  margin: 0 auto;
+  padding: 56px 24px;
+}
+
+.lp-section h2 {
+  font-size: clamp(1.7rem, 3.5vw, 2.4rem);
+  font-weight: 800;
+  text-align: center;
+}
+
+.lp-lead {
+  text-align: center;
+  color: #9a96b8;
+  margin-top: 12px;
+  font-size: 1.05rem;
+}
+
+.lp-grid {
+  display: grid;
+  gap: 18px;
+  margin-top: 34px;
+}
+
+.lp-grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.lp-card {
+  position: relative;
+  background: linear-gradient(135deg, #1a1a33 0%, #0d001a 100%);
+  border: 1px solid #2a2a44;
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.lp-card h3 {
+  margin-top: 14px;
+  font-size: 1.15rem;
+}
+
+.lp-card p {
+  margin-top: 8px;
+  color: #9a96b8;
+  line-height: 1.5;
+  font-size: 0.97rem;
+}
+
+.lp-icon {
+  color: #69c9d0;
+  font-size: 1.5rem;
+}
+
+.lp-step {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  color: #ee1d52;
+  font-weight: 900;
+  font-size: 1.4rem;
+}
+
+.lp-why {
+  text-align: center;
+  max-width: 760px;
+}
+
+.lp-why p {
+  margin-top: 18px;
+  font-size: 1.15rem;
+  line-height: 1.65;
+  color: #cfcbe6;
+}
+
+.lp-why .lp-small {
+  font-size: 0.95rem;
+  color: #9a96b8;
+}
+
+.lp-install {
+  text-align: center;
+}
+
+.lp-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1050px;
+  margin: 0 auto;
+  padding: 28px 24px 40px;
+  border-top: 1px solid #2a2a44;
+  color: #9a96b8;
+  font-size: 0.95rem;
+}
+
+.lp-social {
+  display: flex;
+  gap: 18px;
+  font-size: 1.3rem;
+}
+
+@media (max-width: 800px) {
+  .lp-grid-3 {
+    grid-template-columns: 1fr;
+  }
+  .lp-footer {
+    flex-direction: column;
+    gap: 14px;
+  }
+}

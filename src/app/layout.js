@@ -34,6 +34,17 @@ export default function RootLayout({ children }) {
 
   return (
     <html lang="en">
+      <head>
+        <title>What are the odds?</title>
+        <meta name="theme-color" content="#0a001a" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="description" content="Dare your friends. Settle it on-chain. A social betting app where anyone can turn 'bet you can't…' into a real wager." />
+        <meta property="og:title" content="What are the odds?" />
+        <meta property="og:description" content="Dare your friends. Settle it on-chain." />
+        <meta property="og:image" content="https://whataretheodds.be/hero.png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+      </head>
       <body>
         <WagmiProvider config={config}>
           <QueryClientProvider client={queryClient}>
